@@ -48,7 +48,7 @@ class Adam(Minimizer):
         \\theta_t   &\\leftarrow \\theta_{t-1} - \\alpha {\\hat{m}_t \\over (\\sqrt{\\hat{v}_t} + \\epsilon)}
 
     As suggested in the original paper, the last three steps are optimized for
-    efficieny by using:
+    efficiency by using:
 
     .. math::
         \\alpha_t  &\\leftarrow \\alpha {\\sqrt{(1 - (1 - \\beta_2)^t)} \\over (1 - (1 - \\beta_1)^t)} \\\\
@@ -71,16 +71,16 @@ class Adam(Minimizer):
     :math:`\\epsilon`        ``offset``          Safety offset for division by estimate of second moment.
     ======================= =================== ===========================================================
 
-    Additionally, using Nesterov momentum is possible by setting the momentum
-    attribute of the optimizer to a value other than 0. We apply the momentum
-    step before computing the gradient, resulting in a similar incorporation of
-    Nesterov momentum in Adam as presented in [nadam2015]_.
+    Additionally, when the momentum argument is set to True, a Nesterov-like
+    momentum step is taken for the first-order momentum [nadam2015]_.
+    In this case the optimization mentioned above is not used.
 
     .. note::
        The use of decay parameters :math:`\\beta_1` and :math:`\\beta_2` differs
        from the definition in the original paper [adam2014]_:
        With :math:`\\beta^{\\ast}_i` referring to the parameters as defined in
-       the paper, we use :math:`\\beta_i` with :math:`\\beta_i = 1 - \\beta^{\\ast}_i`
+       the paper, we use :math:`\\beta_i`
+       with :math:`\\beta_i = 1 - \\beta^{\\ast}_i`
 
     .. [adam2014] Kingma, Diederik, and Jimmy Ba.
        "Adam: A Method for Stochastic Optimization."
@@ -96,7 +96,7 @@ class Adam(Minimizer):
                  decay=None,
                  decay_mom1=0.1,
                  decay_mom2=0.001,
-                 momentum=0,
+                 momentum=False,
                  offset=1e-8, args=None):
         """Create an Adam object.
 
@@ -124,9 +124,9 @@ class Adam(Minimizer):
             Decay parameter for the exponential moving average estimate of the
             second moment.
 
-        momentum : float or array_like, optional [default: 0]
-            Momentum to use during optimization. Can be specified analogously
-            (but independent of) step rate.
+        momentum : bool, optional [default: False]
+            If False, regular Adam is used, otherwise results in Adam with
+            Nesterov step.
 
         offset : float, optional, [default: 1e-8]
             Before taking the square root of the running averages, this offset
@@ -161,15 +161,10 @@ class Adam(Minimizer):
 
     def _iterate(self):
         for args, kwargs in self.args:
-            m = self.momentum
             dm1 = self.decay_mom1
             dm2 = self.decay_mom2
             o = self.offset
             t = self.n_iter + 1
-
-            step_m1 = self.step
-            step1 = step_m1 * m
-            self.wrt -= step1
 
             est_mom1_b_m1 = self.est_mom1_b
             est_mom2_b_m1 = self.est_mom2_b
@@ -178,12 +173,19 @@ class Adam(Minimizer):
             self.est_mom1_b = dm1 * gradient + (1 - dm1) * est_mom1_b_m1
             self.est_mom2_b = dm2 * gradient ** 2 + (1 - dm2) * est_mom2_b_m1
 
-            step_t = self.step_rate * (1 - (1 - dm2) ** t) ** 0.5 / \
-                     (1 - (1 - dm1) ** t)
-            step2 = step_t * self.est_mom1_b / (self.est_mom2_b ** 0.5 + o)
+            if not self.momentum:
+                rate_t = self.step_rate * (1 - (1 - dm2) ** t) ** 0.5 / \
+                         (1 - (1 - dm1) ** t)
+                step = rate_t * self.est_mom1_b / (self.est_mom2_b ** 0.5 + o)
+            else:
+                est_mom1 = (1 - dm1) * self.est_mom1_b / (1 - (1 - dm1) **
+                                                         (t + 1)) \
+                           + dm1 * gradient / (1 - (1 - dm1) ** t)
+                est_mom2 = self.est_mom2_b / (1 - (1 - dm2) ** t)
+                step = self.step_rate * est_mom1 / (est_mom2 ** 0.5 + o)
 
-            self.wrt -= step2
-            self.step = step1 + step2
+            self.wrt -= step
+            self.step = step
 
             self.n_iter += 1
 
