@@ -90,7 +90,7 @@ class Adam(Minimizer):
        Stanford University, Tech. Rep (2015).
     """
 
-    state_fields = 'n_iter step_rate decay_mom1 decay_mom2 step offset est_mom1_b est_mom2_b'.split()
+    state_fields = 'n_iter step_rate decay_mom1 decay_mom2 step offset est_mom1_b est_mom2_b decay_mom1_pow decay_mom2_pow'.split()
 
     def __init__(self, wrt, fprime, step_rate=.0002,
                  decay=None,
@@ -144,7 +144,7 @@ class Adam(Minimizer):
                           "satisfied; check original paper to see if you "
                           "really want to do this.")
         if decay is not None:
-            warnings.warn('decay parameter was used in a previous verion of '
+            warnings.warn('decay parameter was used in a previous version of '
                           'Adam and no longer has any effect.')
 
         super(Adam, self).__init__(wrt, args=args)
@@ -157,6 +157,8 @@ class Adam(Minimizer):
         self.momentum = momentum
         self.est_mom1_b = 0
         self.est_mom2_b = 0
+        self.decay_mom1_pow = 1
+        self.decay_mom2_pow = 1
         self.step = 0
 
     def _iterate(self):
@@ -164,24 +166,26 @@ class Adam(Minimizer):
             dm1 = self.decay_mom1
             dm2 = self.decay_mom2
             o = self.offset
-            t = self.n_iter + 1
 
             est_mom1_b_m1 = self.est_mom1_b
             est_mom2_b_m1 = self.est_mom2_b
+
+            self.decay_mom1_pow *= (1 - dm1)
+            self.decay_mom2_pow *= (1 - dm2)
 
             gradient = self.fprime(self.wrt, *args, **kwargs)
             self.est_mom1_b = dm1 * gradient + (1 - dm1) * est_mom1_b_m1
             self.est_mom2_b = dm2 * gradient ** 2 + (1 - dm2) * est_mom2_b_m1
 
             if not self.momentum:
-                rate_t = self.step_rate * (1 - (1 - dm2) ** t) ** 0.5 / \
-                         (1 - (1 - dm1) ** t)
+                rate_t = self.step_rate * (1 - self.decay_mom2_pow) ** 0.5 / \
+                         (1 - self.decay_mom1_pow)
                 step = rate_t * self.est_mom1_b / (self.est_mom2_b ** 0.5 + o)
             else:
-                est_mom1 = (1 - dm1) * self.est_mom1_b / (1 - (1 - dm1) **
-                                                         (t + 1)) \
-                           + dm1 * gradient / (1 - (1 - dm1) ** t)
-                est_mom2 = self.est_mom2_b / (1 - (1 - dm2) ** t)
+                est_mom1 = (1 - dm1) * self.est_mom1_b / (1 - (1 - dm1) *
+                                                          self.decay_mom1_pow) \
+                           + dm1 * gradient / (1 - self.decay_mom1_pow)
+                est_mom2 = self.est_mom2_b / (1 - self.decay_mom2_pow)
                 step = self.step_rate * est_mom1 / (est_mom2 ** 0.5 + o)
 
             self.wrt -= step
